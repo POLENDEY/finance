@@ -1,0 +1,153 @@
+"use client";
+
+import { useActionState, useState } from "react";
+import { signIn, signUp, type AuthState } from "./actions";
+import { PasswordField } from "./password-field";
+
+type AuthMode = "signin" | "signup";
+
+export function LoginForm() {
+  const [mode, setMode] = useState<AuthMode>("signin");
+  const [signInState, signInAction, signInPending] = useActionState(signIn, null);
+  const [signUpState, signUpAction, signUpPending] = useActionState(signUp, null);
+
+  const isSignUp = mode === "signup";
+  const state: AuthState | null = isSignUp ? signUpState : signInState;
+  const formAction = isSignUp ? signUpAction : signInAction;
+  const isPending = isSignUp ? signUpPending : signInPending;
+
+  function switchMode(next: AuthMode) {
+    setMode(next);
+  }
+
+  return (
+    <div>
+      <div className="mb-6 flex rounded-lg border border-white/10 bg-white/5 p-1">
+        <ModeButton active={!isSignUp} onClick={() => switchMode("signin")}>
+          Sign in
+        </ModeButton>
+        <ModeButton active={isSignUp} onClick={() => switchMode("signup")}>
+          Sign up
+        </ModeButton>
+      </div>
+
+      <form key={mode} action={formAction} className="space-y-5">
+        {state?.error && (
+          <div
+            className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+            role="alert"
+          >
+            {state.error}
+          </div>
+        )}
+
+        {state?.success && (
+          <div
+            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300"
+            role="status"
+          >
+            {state.success}
+          </div>
+        )}
+
+        <TextField
+          id="email"
+          label="Email or username"
+          type="text"
+          name="email"
+          autoComplete="username"
+          required
+          placeholder="you@company.com or username"
+        />
+
+        {isSignUp && (
+          <TextField
+            id="fullName"
+            label="Full name"
+            type="text"
+            name="fullName"
+            autoComplete="name"
+            placeholder="Jane Doe"
+          />
+        )}
+
+        <PasswordField
+          id="password"
+          label="Password"
+          name="password"
+          autoComplete={isSignUp ? "new-password" : "current-password"}
+          required
+          placeholder="••••••••"
+        />
+
+        {isSignUp && (
+          <PasswordField
+            id="confirmPassword"
+            label="Confirm password"
+            name="confirmPassword"
+            autoComplete="new-password"
+            required
+            placeholder="••••••••"
+          />
+        )}
+
+        <button
+          type="submit"
+          disabled={isPending}
+          className="mt-2 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isPending
+            ? isSignUp
+              ? "Creating account…"
+              : "Signing in…"
+            : isSignUp
+              ? "Create account"
+              : "Sign in"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
+        active
+          ? "bg-emerald-600 text-white shadow-sm"
+          : "text-slate-400 hover:text-slate-200"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TextField({
+  id,
+  label,
+  ...props
+}: React.ComponentProps<"input"> & { label: string }) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-slate-300">
+        {label}
+      </label>
+      <input
+        id={id}
+        className="w-full rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20"
+        {...props}
+      />
+    </div>
+  );
+}
