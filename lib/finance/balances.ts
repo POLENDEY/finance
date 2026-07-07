@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { recordFundTransfer } from "@/lib/finance/fund-transfers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type FinanceProfile = {
@@ -121,6 +122,11 @@ export async function transferToNetWorth(profileId: number, amount: number) {
     return { error: error.message };
   }
 
+  const recorded = await recordFundTransfer(profileId, "to_net_worth", amount);
+  if ("error" in recorded && recorded.error) {
+    return { error: recorded.error };
+  }
+
   return { success: true };
 }
 
@@ -145,6 +151,11 @@ export async function transferToAllowance(profileId: number, amount: number) {
 
   if (error) {
     return { error: error.message };
+  }
+
+  const recorded = await recordFundTransfer(profileId, "to_allowance", amount);
+  if ("error" in recorded && recorded.error) {
+    return { error: recorded.error };
   }
 
   return { success: true };

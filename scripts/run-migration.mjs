@@ -7,9 +7,14 @@ dotenv.config({ path: resolve(process.cwd(), ".env.local") });
 
 const file = process.argv[2] ?? "20260707090000_add_balances_and_pin.sql";
 const password = process.env.SUPABASE_DB_PASSWORD;
-const url = process.env.SUPABASE_DB_URL;
+const projectRef = "mgmjawvtxmayhgqhucyb";
+const url =
+  process.env.SUPABASE_DB_URL ??
+  (password
+    ? `postgresql://postgres.${projectRef}:${encodeURIComponent(password)}@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres`
+    : undefined);
 
-if (!password || !url) {
+if (!url) {
   console.error("Missing SUPABASE_DB_PASSWORD or SUPABASE_DB_URL");
   process.exit(1);
 }

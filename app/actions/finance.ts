@@ -5,6 +5,7 @@ import {
   deleteTransaction,
   getTransactions,
 } from "@/lib/finance/transactions";
+import { getFundTransfers } from "@/lib/finance/fund-transfers";
 import {
   addToNetWorth,
   adjustAllowanceBalance,
@@ -364,6 +365,7 @@ export async function loadFinanceData() {
   if (!session) {
     return {
       transactions: [],
+      fundTransfers: [],
       financeProfile: null,
       netWorthUnlocked: false,
       error: "Not signed in.",
@@ -371,14 +373,17 @@ export async function loadFinanceData() {
   }
 
   try {
-    const [transactions, financeProfile, netWorthUnlocked] = await Promise.all([
-      getTransactions(session.profileId),
-      getFinanceProfileSafe(session.profileId),
-      isNetWorthUnlocked(session.profileId),
-    ]);
+    const [transactions, fundTransfers, financeProfile, netWorthUnlocked] =
+      await Promise.all([
+        getTransactions(session.profileId),
+        getFundTransfers(session.profileId),
+        getFinanceProfileSafe(session.profileId),
+        isNetWorthUnlocked(session.profileId),
+      ]);
 
     return {
       transactions,
+      fundTransfers,
       financeProfile,
       netWorthUnlocked,
       error: financeProfile ? null : "Balance columns not set up yet. Run database setup.",
@@ -386,6 +391,7 @@ export async function loadFinanceData() {
   } catch (error) {
     return {
       transactions: [],
+      fundTransfers: [],
       financeProfile: null,
       netWorthUnlocked: false,
       error:

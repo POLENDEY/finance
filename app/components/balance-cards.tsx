@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   hideNetWorthAction,
   setupPinAction,
@@ -423,6 +424,7 @@ function TransferToAllowanceForm({
   hasPin: boolean;
   onSuccess: () => void;
 }) {
+  const router = useRouter();
   const [state, formAction, isPending] = useActionState(
     transferToAllowanceAction,
     null as FinanceActionState | null
@@ -430,9 +432,10 @@ function TransferToAllowanceForm({
 
   useEffect(() => {
     if (state?.success) {
+      router.refresh();
       onSuccess();
     }
-  }, [state?.success, onSuccess]);
+  }, [state?.success, onSuccess, router]);
 
   return (
     <form action={formAction} className="space-y-3 rounded-xl bg-white/60 p-3 dark:bg-violet-950/30">
@@ -486,6 +489,7 @@ function TransferToNetWorthForm({
   onNeedPin: () => void;
   onSuccess: () => void;
 }) {
+  const router = useRouter();
   const [state, formAction, isPending] = useActionState(
     transferToNetWorthAction,
     null as FinanceActionState | null
@@ -493,9 +497,10 @@ function TransferToNetWorthForm({
 
   useEffect(() => {
     if (state?.success) {
+      router.refresh();
       onSuccess();
     }
-  }, [state?.success, onSuccess]);
+  }, [state?.success, onSuccess, router]);
 
   return (
     <form action={formAction} className="space-y-3 rounded-xl bg-white/60 p-3 dark:bg-sky-950/30">

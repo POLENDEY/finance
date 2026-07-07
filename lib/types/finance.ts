@@ -19,6 +19,16 @@ export type FinanceSummary = {
   balance: number;
 };
 
+export type FundTransferDirection = "to_allowance" | "to_net_worth";
+
+export type FundTransfer = {
+  id: number;
+  profile_id: number;
+  direction: FundTransferDirection;
+  amount: number;
+  created_at: string;
+};
+
 export const EXPENSE_CATEGORIES = [
   "Food",
   "Transport",

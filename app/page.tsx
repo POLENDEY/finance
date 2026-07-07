@@ -13,7 +13,7 @@ export default async function Home() {
 
   const profile = await getProfileById(session.profileId);
   const displayName = profile?.full_name ?? profile?.username ?? "User";
-  const { transactions, financeProfile, netWorthUnlocked, error } =
+  const { transactions, fundTransfers, financeProfile, netWorthUnlocked, error } =
     await loadFinanceData();
 
   return (
@@ -73,6 +73,7 @@ export default async function Home() {
 
         <FinanceDashboard
           transactions={transactions}
+          fundTransfers={fundTransfers}
           financeProfile={financeProfile}
           netWorthUnlocked={netWorthUnlocked}
           loadError={error}

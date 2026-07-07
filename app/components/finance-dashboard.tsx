@@ -7,15 +7,18 @@ import {
   type FinanceActionState,
 } from "@/app/actions/finance";
 import { BalanceCards } from "@/app/components/balance-cards";
+import { TransferHistory } from "@/app/components/transfer-history";
 import type { FinanceProfile } from "@/lib/finance/balances";
 import {
   EXPENSE_CATEGORIES,
+  type FundTransfer,
   type Transaction,
   type TransactionType,
 } from "@/lib/types/finance";
 
 type FinanceDashboardProps = {
   transactions: Transaction[];
+  fundTransfers: FundTransfer[];
   financeProfile: FinanceProfile | null;
   netWorthUnlocked: boolean;
   loadError: string | null;
@@ -39,6 +42,7 @@ const TRANSACTIONS_PAGE_SIZE = 5;
 
 export function FinanceDashboard({
   transactions,
+  fundTransfers,
   financeProfile,
   netWorthUnlocked,
   loadError,
@@ -86,6 +90,8 @@ export function FinanceDashboard({
         financeProfile={financeProfile}
         netWorthUnlocked={netWorthUnlocked}
       />
+
+      <TransferHistory transfers={fundTransfers} />
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
