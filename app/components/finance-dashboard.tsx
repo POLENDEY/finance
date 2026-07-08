@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import type { BalanceCard, FundTransfer, TransactionWithCard } from "@/lib/types/finance";
 import {
   createTransactionAction,
@@ -122,7 +122,6 @@ export function FinanceDashboard({
 
         <form action={formAction} className="mt-6 space-y-4">
           <input type="hidden" name="type" value={mode} />
-          <input type="hidden" name="cardId" value={selectedCardId} />
 
           {state?.error && (
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
@@ -135,32 +134,21 @@ export function FinanceDashboard({
             </div>
           )}
 
-          <Field label={mode === "deposit" ? "Deposit to" : "Deduct from"}>
-            <div className="flex flex-wrap gap-2">
-              {balanceCards.map((card) => {
-                const theme = cardThemeClasses(card.color_theme);
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => setSelectedCardId(card.id)}
-                    className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
-                      selectedCardId === card.id
-                        ? `ring-2 ring-emerald-500 ${theme.border} bg-white dark:bg-zinc-950`
-                        : "border-zinc-200 dark:border-zinc-700"
-                    }`}
-                  >
-                    <span className={`font-medium ${theme.text}`}>{card.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label={mode === "deposit" ? "Deposit to" : "Deduct from"}>
+              <CardSelectDropdown
+                cards={balanceCards}
+                value={selectedCardId}
+                onChange={setSelectedCardId}
+                disabled={balanceCards.length === 0}
+              />
+              <input type="hidden" name="cardId" value={selectedCardId} />
+            </Field>
 
-          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Amount">
               <input name="amount" type="number" min="0.01" step="0.01" required placeholder="0.00" className={inputClass} />
             </Field>
+
             <Field label={mode === "deposit" ? "Reason / source" : "Expense name / reason"}>
               <input
                 name="description"
@@ -285,6 +273,115 @@ export function FinanceDashboard({
         )}
       </section>
     </div>
+  );
+}
+
+function CardSelectDropdown({
+  cards,
+  value,
+  onChange,
+  disabled,
+}: {
+  cards: BalanceCard[];
+  value: number;
+  onChange: (cardId: number) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selectedCard = cards.find((card) => card.id === value);
+  const selectedTheme = selectedCard
+    ? cardThemeClasses(selectedCard.color_theme)
+    : null;
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled || cards.length === 0}
+        onClick={() => setOpen((current) => !current)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`${inputClass} flex w-full items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60`}
+      >
+        <span className={`truncate font-medium ${selectedTheme?.text ?? "text-zinc-900 dark:text-zinc-50"}`}>
+          {selectedCard?.name ?? "Select balance card"}
+        </span>
+        <ChevronDownIcon className={`shrink-0 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && cards.length > 0 && (
+        <ul
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-950"
+        >
+          {cards.map((card) => {
+            const theme = cardThemeClasses(card.color_theme);
+            const isSelected = card.id === value;
+
+            return (
+              <li key={card.id} role="option" aria-selected={isSelected}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(card.id);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between px-3.5 py-2.5 text-left text-sm transition hover:bg-zinc-50 dark:hover:bg-zinc-900 ${
+                    isSelected ? "bg-emerald-50 dark:bg-emerald-950/30" : ""
+                  }`}
+                >
+                  <span className={`font-medium ${theme.text}`}>{card.name}</span>
+                  {isSelected && (
+                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      Selected
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ChevronDownIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={`h-4 w-4 ${className}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      stroke="currentColor"
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+    </svg>
   );
 }
 
