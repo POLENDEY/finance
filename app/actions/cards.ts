@@ -21,7 +21,6 @@ import {
   clearFinanceUnlock,
   getUnlockedCardIds,
   isCardUnlocked,
-  isGrandNetWorthVisible,
   lockCard,
   setGrandNetWorthVisible,
   unlockCard,
@@ -210,7 +209,6 @@ export async function verifyFinancePinAction(
     await setGrandNetWorthVisible(auth.session!.profileId, true);
   }
 
-  revalidatePath("/");
   return { success: "Unlocked.", unlocked: true };
 }
 
@@ -221,7 +219,16 @@ export async function lockCardAction(cardId: number) {
   }
 
   await lockCard(auth.session!.profileId, cardId);
-  revalidatePath("/");
+  return { success: true };
+}
+
+export async function showGrandNetWorthAction() {
+  const auth = await requireSession();
+  if ("error" in auth && auth.error) {
+    return { error: auth.error };
+  }
+
+  await setGrandNetWorthVisible(auth.session!.profileId, true);
   return { success: true };
 }
 
@@ -232,7 +239,6 @@ export async function hideGrandNetWorthAction() {
   }
 
   await setGrandNetWorthVisible(auth.session!.profileId, false);
-  revalidatePath("/");
   return { success: true };
 }
 

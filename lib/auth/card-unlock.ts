@@ -122,6 +122,14 @@ export async function getUnlockedCardIds(profileId: number) {
   return payload?.cardIds ?? [];
 }
 
+export async function getFinanceUnlockState(profileId: number) {
+  const payload = await readPayload(profileId);
+  return {
+    unlockedCardIds: payload?.cardIds ?? [],
+    grandNetWorthVisible: payload?.grandVisible ?? false,
+  };
+}
+
 export async function isGrandNetWorthVisible(profileId: number) {
   const payload = await readPayload(profileId);
   return payload?.grandVisible ?? false;

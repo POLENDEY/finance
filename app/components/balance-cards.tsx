@@ -10,6 +10,7 @@ import {
   lockCardAction,
   renameCardAction,
   setupFinancePinAction,
+  showGrandNetWorthAction,
   transferBetweenCardsAction,
   updateCardHiddenAction,
   updateFinancePinRequiredAction,
@@ -18,8 +19,7 @@ import {
 } from "@/app/actions/cards";
 import {
   cardThemeClasses,
-  countVisibleCards,
-  getVisibleGrandNetWorth,
+  getGrandNetWorth,
 } from "@/lib/finance/balance-cards";
 import type { BalanceCard } from "@/lib/types/finance";
 
@@ -108,6 +108,7 @@ export function BalanceCards({
         );
       } else {
         setLocalGrandVisible(true);
+        void showGrandNetWorthAction();
       }
       return;
     }
@@ -123,21 +124,16 @@ export function BalanceCards({
       setLocalGrandVisible(true);
     }
     setPinModal(null);
-    router.refresh();
   }
 
   function handleLockCard(cardId: number) {
-    lockCardAction(cardId).then(() => {
-      setLocalUnlockedIds((ids) => ids.filter((id) => id !== cardId));
-      router.refresh();
-    });
+    setLocalUnlockedIds((ids) => ids.filter((id) => id !== cardId));
+    void lockCardAction(cardId);
   }
 
   function handleHideGrand() {
-    hideGrandNetWorthAction().then(() => {
-      setLocalGrandVisible(false);
-      router.refresh();
-    });
+    setLocalGrandVisible(false);
+    void hideGrandNetWorthAction();
   }
 
   function handleToggleCardVisibility(card: BalanceCard) {
@@ -190,7 +186,6 @@ export function BalanceCards({
       <section className="space-y-4">
         <GrandNetWorthBanner
           cards={cards}
-          unlockedCardIds={localUnlockedIds}
           visible={isGrandVisible()}
           pinRequired={pinRequired}
           hasPin={hasPin}
@@ -484,21 +479,19 @@ function BalanceCardItem({
 
 function GrandNetWorthBanner({
   cards,
-  unlockedCardIds,
   visible,
   pinRequired,
   hasPin,
   onToggleVisibility,
 }: {
   cards: BalanceCard[];
-  unlockedCardIds: number[];
   visible: boolean;
   pinRequired: boolean;
   hasPin: boolean;
   onToggleVisibility: () => void;
 }) {
-  const total = getVisibleGrandNetWorth(cards, unlockedCardIds);
-  const visibleCount = countVisibleCards(cards, unlockedCardIds);
+  const total = getGrandNetWorth(cards);
+  const protectedCount = cards.filter((card) => card.is_hidden).length;
 
   return (
     <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-100 p-4 sm:p-6 dark:border-emerald-900 dark:from-emerald-950/60 dark:to-teal-950/40">
@@ -512,10 +505,12 @@ function GrandNetWorthBanner({
           </p>
           <p className="mt-1 text-[11px] leading-snug text-emerald-600/80 sm:text-xs dark:text-emerald-400/80">
             {visible
-              ? `Total from ${visibleCount} visible ${visibleCount === 1 ? "card" : "cards"}`
+              ? protectedCount > 0
+                ? `Total across all ${cards.length} cards, including ${protectedCount} protected`
+                : `Total across all ${cards.length} ${cards.length === 1 ? "card" : "cards"}`
               : pinRequired
                 ? "Hidden — enter PIN to view"
-                : "Hidden — tap eye to view"}
+                : "Hidden — tap eye to show"}
           </p>
         </div>
         <button
@@ -656,12 +651,12 @@ function FinancePinRequiredSetting({
         <div className="flex items-center justify-between gap-3 rounded-xl bg-white/60 px-3 py-2 dark:bg-zinc-950/30">
           <div>
             <p className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
-              Require PIN to view protected balances
+              {pinRequired ? "Require PIN to reveal" : "Quick show / hide"}
             </p>
             <p className="text-[11px] text-zinc-500">
               {pinRequired
-                ? "One PIN unlocks each card or total individually"
-                : "Protected balances can be viewed without PIN"}
+                ? "Enter your PIN each time you reveal Grand Net Worth or a protected card"
+                : "Use the eye icon to show or hide Grand Net Worth instantly"}
             </p>
           </div>
           <button

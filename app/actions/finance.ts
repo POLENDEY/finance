@@ -12,7 +12,7 @@ import {
   getTransaction,
   getTransactions,
 } from "@/lib/finance/transactions";
-import { getUnlockedCardIds, isGrandNetWorthVisible } from "@/lib/auth/card-unlock";
+import { getFinanceUnlockState } from "@/lib/auth/card-unlock";
 import { loadBalanceCards } from "@/app/actions/cards";
 import { getSession } from "@/lib/auth/session";
 import { revalidatePath } from "next/cache";
@@ -162,15 +162,13 @@ export async function loadFinanceData() {
       transactions,
       fundTransfers,
       balanceCards,
-      unlockedCardIds,
-      grandNetWorthVisible,
+      unlockState,
       pinSettings,
     ] = await Promise.all([
       getTransactions(session.profileId),
       getFundTransfers(session.profileId),
       loadBalanceCards(session.profileId),
-      getUnlockedCardIds(session.profileId),
-      isGrandNetWorthVisible(session.profileId),
+      getFinanceUnlockState(session.profileId),
       getFinancePinSettings(session.profileId),
     ]);
 
@@ -178,8 +176,8 @@ export async function loadFinanceData() {
       transactions,
       fundTransfers,
       balanceCards,
-      unlockedCardIds,
-      grandNetWorthVisible,
+      unlockedCardIds: unlockState.unlockedCardIds,
+      grandNetWorthVisible: unlockState.grandNetWorthVisible,
       hasPin: Boolean(pinSettings.pin_hash),
       pinRequired: pinSettings.pin_required,
       error: null,
