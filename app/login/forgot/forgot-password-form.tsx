@@ -84,7 +84,8 @@ export function ForgotPasswordForm() {
         <form action={resetAction} className="space-y-5">
           <p className="text-sm text-slate-400">
             Enter the 6-digit code sent to <span className="text-slate-200">{account.email}</span>,
-            then choose a new password.
+            then choose a new password. If you don&apos;t see the email, check your spam or junk
+            folder too.
           </p>
           <input type="hidden" name="username" value={account.username} />
           <input type="hidden" name="email" value={account.email} />

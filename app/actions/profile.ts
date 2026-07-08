@@ -108,7 +108,7 @@ export async function requestPasswordResetOtpAction(
     return {
       success: devOtp
         ? "Email could not be sent locally, so your reset code is shown below."
-        : "A 6-digit code was sent to your recovery email. It expires in 10 minutes.",
+        : "A 6-digit code was sent to your recovery email. It expires in 10 minutes. If you don't see it, check your spam or junk folder.",
       otpSent: true,
       devOtp,
       devOtpReason,
