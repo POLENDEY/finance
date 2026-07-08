@@ -28,7 +28,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </svg>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Finance Monitoring
+            Finance Tracker
           </h1>
           <p className="mt-2 text-sm text-slate-400">
             Sign in or create an account to continue

@@ -1,26 +1,29 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
+import type { BalanceCard, FundTransfer, TransactionWithCard } from "@/lib/types/finance";
 import {
   createTransactionAction,
   deleteTransactionAction,
+  deleteTransactionFormAction,
   type FinanceActionState,
 } from "@/app/actions/finance";
 import { BalanceCards } from "@/app/components/balance-cards";
 import { TransferHistory } from "@/app/components/transfer-history";
-import type { FinanceProfile } from "@/lib/finance/balances";
+import { cardThemeClasses } from "@/lib/finance/balance-cards";
 import {
   EXPENSE_CATEGORIES,
-  type FundTransfer,
-  type Transaction,
   type TransactionType,
 } from "@/lib/types/finance";
 
 type FinanceDashboardProps = {
-  transactions: Transaction[];
+  transactions: TransactionWithCard[];
   fundTransfers: FundTransfer[];
-  financeProfile: FinanceProfile | null;
-  netWorthUnlocked: boolean;
+  balanceCards: BalanceCard[];
+  unlockedCardIds: number[];
+  grandNetWorthVisible: boolean;
+  hasPin: boolean;
+  pinRequired: boolean;
   loadError: string | null;
 };
 
@@ -43,19 +46,28 @@ const TRANSACTIONS_PAGE_SIZE = 5;
 export function FinanceDashboard({
   transactions,
   fundTransfers,
-  financeProfile,
-  netWorthUnlocked,
+  balanceCards,
+  unlockedCardIds,
+  grandNetWorthVisible,
+  hasPin,
+  pinRequired,
   loadError,
 }: FinanceDashboardProps) {
   const [mode, setMode] = useState<TransactionType>("deposit");
-  const [fundTarget, setFundTarget] = useState<"allowance" | "net_worth">(
-    "allowance"
+  const [selectedCardId, setSelectedCardId] = useState<number>(
+    balanceCards[0]?.id ?? 0
   );
   const [state, formAction, isPending] = useActionState(
     createTransactionAction,
     null as FinanceActionState | null
   );
   const [transactionPage, setTransactionPage] = useState(0);
+
+  useEffect(() => {
+    if (balanceCards.length > 0 && !balanceCards.some((c) => c.id === selectedCardId)) {
+      setSelectedCardId(balanceCards[0].id);
+    }
+  }, [balanceCards, selectedCardId]);
 
   const totalTransactionPages = Math.max(
     1,
@@ -80,15 +92,16 @@ export function FinanceDashboard({
     <div className="space-y-8">
       {loadError && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
-          {loadError.includes("Could not find the table")
-            ? "Transactions table is not set up yet. Run the database setup or contact your admin."
-            : loadError}
+          {loadError}
         </div>
       )}
 
       <BalanceCards
-        financeProfile={financeProfile}
-        netWorthUnlocked={netWorthUnlocked}
+        cards={balanceCards}
+        unlockedCardIds={unlockedCardIds}
+        grandNetWorthVisible={grandNetWorthVisible}
+        hasPin={hasPin}
+        pinRequired={pinRequired}
       />
 
       <TransferHistory transfers={fundTransfers} />
@@ -103,105 +116,64 @@ export function FinanceDashboard({
         </p>
 
         <div className="mt-5 flex gap-2">
-          <TypeToggle
-            active={mode === "deposit"}
-            type="deposit"
-            onClick={() => setMode("deposit")}
-          />
-          <TypeToggle
-            active={mode === "expense"}
-            type="expense"
-            onClick={() => setMode("expense")}
-          />
+          <TypeToggle active={mode === "deposit"} type="deposit" onClick={() => setMode("deposit")} />
+          <TypeToggle active={mode === "expense"} type="expense" onClick={() => setMode("expense")} />
         </div>
 
         <form action={formAction} className="mt-6 space-y-4">
           <input type="hidden" name="type" value={mode} />
+          <input type="hidden" name="cardId" value={selectedCardId} />
 
           {state?.error && (
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
               {state.error}
             </div>
           )}
-
           {state?.success && (
             <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
               {state.success}
             </div>
           )}
 
+          <Field label={mode === "deposit" ? "Deposit to" : "Deduct from"}>
+            <div className="flex flex-wrap gap-2">
+              {balanceCards.map((card) => {
+                const theme = cardThemeClasses(card.color_theme);
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => setSelectedCardId(card.id)}
+                    className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
+                      selectedCardId === card.id
+                        ? `ring-2 ring-emerald-500 ${theme.border} bg-white dark:bg-zinc-950`
+                        : "border-zinc-200 dark:border-zinc-700"
+                    }`}
+                  >
+                    <span className={`font-medium ${theme.text}`}>{card.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Amount">
-              <input
-                name="amount"
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
-                placeholder="0.00"
-                className={inputClass}
-              />
+              <input name="amount" type="number" min="0.01" step="0.01" required placeholder="0.00" className={inputClass} />
             </Field>
-
-            <Field
-              label={mode === "deposit" ? "Reason / source" : "Expense name / reason"}
-            >
+            <Field label={mode === "deposit" ? "Reason / source" : "Expense name / reason"}>
               <input
                 name="description"
                 type="text"
                 required
-                placeholder={
-                  mode === "deposit" ? "e.g. Salary, refund" : "e.g. Groceries, rent"
-                }
+                placeholder={mode === "deposit" ? "e.g. Salary, refund" : "e.g. Groceries, rent"}
                 className={inputClass}
               />
             </Field>
           </div>
 
-          {mode === "deposit" && (
-            <Field label="Deposit to">
-              <div className="flex gap-2">
-                <DeductToggle
-                  active={fundTarget === "allowance"}
-                  label="Allowance Balance"
-                  description="Day-to-day spending"
-                  onClick={() => setFundTarget("allowance")}
-                  accent="sky"
-                />
-                <DeductToggle
-                  active={fundTarget === "net_worth"}
-                  label="Net Worth"
-                  description="Protected savings"
-                  onClick={() => setFundTarget("net_worth")}
-                  accent="violet"
-                />
-              </div>
-              <input type="hidden" name="depositTo" value={fundTarget} />
-            </Field>
-          )}
-
           {mode === "expense" && (
             <>
-              <Field label="Deduct from">
-                <div className="flex gap-2">
-                  <DeductToggle
-                    active={fundTarget === "allowance"}
-                    label="Allowance Balance"
-                    description="Day-to-day spending"
-                    onClick={() => setFundTarget("allowance")}
-                    accent="sky"
-                  />
-                  <DeductToggle
-                    active={fundTarget === "net_worth"}
-                    label="Net Worth"
-                    description="Protected savings"
-                    onClick={() => setFundTarget("net_worth")}
-                    accent="violet"
-                  />
-                </div>
-                <input type="hidden" name="deductFrom" value={fundTarget} />
-              </Field>
-
               <Field label="Category">
                 <select name="category" required className={inputClass}>
                   <option value="">Select category</option>
@@ -212,38 +184,17 @@ export function FinanceDashboard({
                   ))}
                 </select>
               </Field>
-
-              {fundTarget === "net_worth" && (
-                <Field label="PIN (required for net worth)">
-                  <input
-                    name="pin"
-                    type="password"
-                    inputMode="numeric"
-                    pattern="\d{6}"
-                    maxLength={6}
-                    required
-                    placeholder="••••••"
-                    className={`${inputClass} text-center tracking-[0.4em]`}
-                  />
-                </Field>
-              )}
             </>
           )}
 
           <button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || balanceCards.length === 0}
             className={`rounded-lg px-5 py-2.5 text-sm font-medium text-white transition disabled:opacity-60 ${
-              mode === "deposit"
-                ? "bg-emerald-600 hover:bg-emerald-500"
-                : "bg-rose-600 hover:bg-rose-500"
+              mode === "deposit" ? "bg-emerald-600 hover:bg-emerald-500" : "bg-rose-600 hover:bg-rose-500"
             }`}
           >
-            {isPending
-              ? "Saving…"
-              : mode === "deposit"
-                ? "Add deposit"
-                : "Add expense"}
+            {isPending ? "Saving…" : mode === "deposit" ? "Add deposit" : "Add expense"}
           </button>
         </form>
       </section>
@@ -263,10 +214,7 @@ export function FinanceDashboard({
           <>
             <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
               {pagedTransactions.map((transaction) => (
-                <li
-                  key={transaction.id}
-                  className="flex items-center justify-between gap-4 px-6 py-4"
-                >
+                <li key={transaction.id} className="flex items-center justify-between gap-4 px-6 py-4">
                   <div className="flex items-start gap-3">
                     <span
                       className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg font-bold ${
@@ -287,25 +235,15 @@ export function FinanceDashboard({
                             {transaction.category}
                           </span>
                         )}
-                        {transaction.deduct_from && (
-                          <span
-                            className={`mr-2 rounded-full px-2 py-0.5 ${
-                              transaction.deduct_from === "net_worth"
-                                ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
-                                : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
-                            }`}
-                          >
-                            {transaction.type === "deposit" ? "To " : ""}
-                            {transaction.deduct_from === "net_worth"
-                              ? "Net Worth"
-                              : "Allowance"}
+                        {transaction.card_name && (
+                          <span className="mr-2 rounded-full bg-violet-100 px-2 py-0.5 text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+                            {transaction.card_name}
                           </span>
                         )}
                         {formatDate(transaction.created_at)}
                       </p>
                     </div>
                   </div>
-
                   <div className="flex items-center gap-3">
                     <span
                       className={`text-sm font-semibold ${
@@ -322,13 +260,12 @@ export function FinanceDashboard({
                 </li>
               ))}
             </ul>
-
             <div className="flex items-center justify-between border-t border-zinc-200 px-6 py-3 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => setTransactionPage((p) => Math.max(0, p - 1))}
                 disabled={transactionPage === 0}
-                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium disabled:opacity-40 dark:border-zinc-700"
               >
                 Prev
               </button>
@@ -337,13 +274,9 @@ export function FinanceDashboard({
               </p>
               <button
                 type="button"
-                onClick={() =>
-                  setTransactionPage((p) =>
-                    Math.min(totalTransactionPages - 1, p + 1)
-                  )
-                }
+                onClick={() => setTransactionPage((p) => Math.min(totalTransactionPages - 1, p + 1))}
                 disabled={transactionPage >= totalTransactionPages - 1}
-                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium disabled:opacity-40 dark:border-zinc-700"
               >
                 Next
               </button>
@@ -352,41 +285,6 @@ export function FinanceDashboard({
         )}
       </section>
     </div>
-  );
-}
-
-function DeductToggle({
-  active,
-  label,
-  description,
-  onClick,
-  accent,
-}: {
-  active: boolean;
-  label: string;
-  description: string;
-  onClick: () => void;
-  accent: "sky" | "violet";
-}) {
-  const activeStyles = {
-    sky: "border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
-    violet:
-      "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300",
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex-1 rounded-xl border px-3 py-3 text-left transition ${
-        active
-          ? activeStyles[accent]
-          : "border-zinc-200 text-zinc-500 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600"
-      }`}
-    >
-      <span className="block text-sm font-semibold">{label}</span>
-      <span className="mt-0.5 block text-xs opacity-80">{description}</span>
-    </button>
   );
 }
 
@@ -400,32 +298,24 @@ function TypeToggle({
   onClick: () => void;
 }) {
   const isDeposit = type === "deposit";
-
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+      className={`flex-1 rounded-xl border px-4 py-3 text-sm font-semibold transition ${
         active
           ? isDeposit
-            ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-            : "border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-          : "border-zinc-200 text-zinc-500 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600"
+            ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+            : "border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+          : "border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
       }`}
     >
-      <span className="text-2xl leading-none">{isDeposit ? "+" : "−"}</span>
-      {isDeposit ? "Deposit" : "Expense"}
+      {isDeposit ? "+ Deposit" : "− Expense"}
     </button>
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -437,26 +327,21 @@ function Field({
 }
 
 function DeleteButton({ transactionId }: { transactionId: number }) {
-  const [pending, setPending] = useState(false);
-
-  async function handleDelete() {
-    setPending(true);
-    await deleteTransactionAction(transactionId);
-    setPending(false);
-  }
-
   return (
-    <button
-      type="button"
-      onClick={handleDelete}
-      disabled={pending}
-      className="rounded-md px-2 py-1 text-xs text-zinc-400 transition hover:bg-zinc-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-zinc-800"
-      aria-label="Delete transaction"
-    >
-      {pending ? "…" : "Delete"}
-    </button>
+    <form action={deleteTransactionFormAction}>
+      <input type="hidden" name="transactionId" value={transactionId} />
+      <button
+        type="submit"
+        className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800"
+        aria-label="Delete transaction"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+        </svg>
+      </button>
+    </form>
   );
 }
 
 const inputClass =
-  "w-full rounded-lg border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50";
+  "w-full rounded-lg border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50";

@@ -1,42 +1,26 @@
 "use server";
 
 import {
-  addTransaction,
-  deleteTransaction,
-  getTransactions,
-} from "@/lib/finance/transactions";
+  adjustCardBalance,
+  getBalanceCards,
+} from "@/lib/finance/balance-cards";
+import { getFinancePinSettings } from "@/lib/finance/finance-pin";
 import { getFundTransfers } from "@/lib/finance/fund-transfers";
 import {
-  addToNetWorth,
-  adjustAllowanceBalance,
-  deductFromNetWorth,
-  getFinanceProfile,
-  getFinanceProfileSafe,
-  isValidPin,
-  setNetWorthPin,
-  setNetWorthPinRequired,
-  transferToAllowance,
-  transferToNetWorth,
-  verifyNetWorthPin,
-} from "@/lib/finance/balances";
-import {
-  clearNetWorthUnlock,
-  isNetWorthUnlocked,
-  setNetWorthUnlock,
-} from "@/lib/auth/net-worth-unlock";
+  addTransaction,
+  deleteTransaction,
+  getTransaction,
+  getTransactions,
+} from "@/lib/finance/transactions";
+import { getUnlockedCardIds, isGrandNetWorthVisible } from "@/lib/auth/card-unlock";
+import { loadBalanceCards } from "@/app/actions/cards";
 import { getSession } from "@/lib/auth/session";
 import { revalidatePath } from "next/cache";
-import type { DeductFrom, TransactionType } from "@/lib/types/finance";
+import type { TransactionType } from "@/lib/types/finance";
 
 export type FinanceActionState = {
   error?: string;
   success?: string;
-};
-
-export type PinActionState = {
-  error?: string;
-  success?: string;
-  unlocked?: boolean;
 };
 
 export async function createTransactionAction(
@@ -52,6 +36,7 @@ export async function createTransactionAction(
   const amountRaw = formData.get("amount") as string;
   const description = (formData.get("description") as string).trim();
   const category = (formData.get("category") as string | null)?.trim() || null;
+  const cardId = Number.parseInt(formData.get("cardId") as string, 10);
 
   if (type !== "deposit" && type !== "expense") {
     return { error: "Invalid transaction type." };
@@ -70,47 +55,18 @@ export async function createTransactionAction(
     return { error: "Please select an expense category." };
   }
 
-  let fundTarget: DeductFrom = "allowance";
-
-  if (type === "deposit") {
-    const dest = formData.get("depositTo") as string;
-    if (dest !== "allowance" && dest !== "net_worth") {
-      return { error: "Please select where to deposit." };
-    }
-    fundTarget = dest;
+  if (!Number.isFinite(cardId)) {
+    return { error: "Please select a balance card." };
   }
 
-  if (type === "expense") {
-    const source = formData.get("deductFrom") as string;
-    if (source !== "allowance" && source !== "net_worth") {
-      return { error: "Please select where to deduct from." };
-    }
-    fundTarget = source;
-
-    if (fundTarget === "net_worth") {
-      const pin = (formData.get("pin") as string | null)?.trim() ?? "";
-      if (!isValidPin(pin)) {
-        return { error: "Enter your 6-digit PIN to deduct from net worth." };
-      }
-      const pinResult = await verifyNetWorthPin(session.profileId, pin);
-      if ("error" in pinResult && pinResult.error) {
-        return { error: pinResult.error };
-      }
-    }
+  const cards = await getBalanceCards(session.profileId);
+  const card = cards.find((c) => c.id === cardId);
+  if (!card) {
+    return { error: "Invalid balance card." };
   }
 
-  let balanceResult: { error?: string; success?: boolean };
-  if (type === "deposit") {
-    balanceResult =
-      fundTarget === "net_worth"
-        ? await addToNetWorth(session.profileId, amount)
-        : await adjustAllowanceBalance(session.profileId, amount);
-  } else if (fundTarget === "net_worth") {
-    balanceResult = await deductFromNetWorth(session.profileId, amount);
-  } else {
-    balanceResult = await adjustAllowanceBalance(session.profileId, -amount);
-  }
-
+  const delta = type === "deposit" ? amount : -amount;
+  const balanceResult = await adjustCardBalance(session.profileId, cardId, delta);
   if ("error" in balanceResult && balanceResult.error) {
     return { error: balanceResult.error };
   }
@@ -121,21 +77,11 @@ export async function createTransactionAction(
     amount,
     description,
     category: type === "expense" ? category : null,
-    deductFrom: fundTarget,
+    cardId,
   });
 
   if ("error" in result && result.error) {
-    if (type === "deposit") {
-      if (fundTarget === "net_worth") {
-        await deductFromNetWorth(session.profileId, amount);
-      } else {
-        await adjustAllowanceBalance(session.profileId, -amount);
-      }
-    } else if (fundTarget === "net_worth") {
-      await addToNetWorth(session.profileId, amount);
-    } else {
-      await adjustAllowanceBalance(session.profileId, amount);
-    }
+    await adjustCardBalance(session.profileId, cardId, -delta);
     return { error: result.error };
   }
 
@@ -143,13 +89,17 @@ export async function createTransactionAction(
   return {
     success:
       type === "deposit"
-        ? fundTarget === "net_worth"
-          ? "Deposit added to net worth."
-          : "Deposit added to allowance."
-        : fundTarget === "net_worth"
-          ? "Expense deducted from net worth."
-          : "Expense deducted from allowance.",
+        ? `Deposit added to ${card.name}.`
+        : `Expense deducted from ${card.name}.`,
   };
+}
+
+export async function deleteTransactionFormAction(formData: FormData) {
+  const transactionId = Number.parseInt(formData.get("transactionId") as string, 10);
+  if (!Number.isFinite(transactionId)) {
+    return;
+  }
+  await deleteTransactionAction(transactionId);
 }
 
 export async function deleteTransactionAction(transactionId: number) {
@@ -158,206 +108,38 @@ export async function deleteTransactionAction(transactionId: number) {
     return { error: "You must be signed in." };
   }
 
+  const txResult = await getTransaction(session.profileId, transactionId);
+  if ("error" in txResult && txResult.error) {
+    return { error: txResult.error };
+  }
+
+  const tx = txResult.transaction;
+  if (!tx) {
+    return { error: "Transaction not found." };
+  }
+
+  if (!tx.card_id) {
+    return { error: "Transaction has no linked card." };
+  }
+
+  const delta = tx.type === "deposit" ? -tx.amount : tx.amount;
+  const balanceResult = await adjustCardBalance(
+    session.profileId,
+    tx.card_id,
+    delta
+  );
+  if ("error" in balanceResult && balanceResult.error) {
+    return { error: balanceResult.error };
+  }
+
   const result = await deleteTransaction(session.profileId, transactionId);
   if ("error" in result && result.error) {
+    await adjustCardBalance(session.profileId, tx.card_id, -delta);
     return { error: result.error };
   }
 
   revalidatePath("/");
   return { success: true };
-}
-
-export async function setupPinAction(
-  _prev: PinActionState | null,
-  formData: FormData
-): Promise<PinActionState | null> {
-  const session = await getSession();
-  if (!session) {
-    return { error: "You must be signed in." };
-  }
-
-  const pin = (formData.get("pin") as string).trim();
-  const confirmPin = (formData.get("confirmPin") as string).trim();
-
-  if (!isValidPin(pin)) {
-    return { error: "PIN must be exactly 6 digits." };
-  }
-
-  if (pin !== confirmPin) {
-    return { error: "PINs do not match." };
-  }
-
-  const result = await setNetWorthPin(session.profileId, pin);
-  if ("error" in result && result.error) {
-    return { error: result.error };
-  }
-
-  await setNetWorthUnlock(session.profileId);
-  revalidatePath("/");
-  return { success: "PIN created. Net worth is now visible.", unlocked: true };
-}
-
-export async function verifyPinAction(
-  _prev: PinActionState | null,
-  formData: FormData
-): Promise<PinActionState | null> {
-  const session = await getSession();
-  if (!session) {
-    return { error: "You must be signed in." };
-  }
-
-  const pin = (formData.get("pin") as string).trim();
-  if (!isValidPin(pin)) {
-    return { error: "PIN must be exactly 6 digits." };
-  }
-
-  const result = await verifyNetWorthPin(session.profileId, pin);
-  if ("error" in result && result.error) {
-    return { error: result.error };
-  }
-
-  await setNetWorthUnlock(session.profileId);
-  revalidatePath("/");
-  return { success: "Net worth unlocked.", unlocked: true };
-}
-
-export async function hideNetWorthAction() {
-  const session = await getSession();
-  if (!session) {
-    return { error: "You must be signed in." };
-  }
-
-  await clearNetWorthUnlock();
-  revalidatePath("/");
-  return { success: true };
-}
-
-export async function updatePinRequiredAction(
-  _prev: FinanceActionState | null,
-  formData: FormData
-): Promise<FinanceActionState | null> {
-  const session = await getSession();
-  if (!session) {
-    return { error: "You must be signed in." };
-  }
-
-  const pinRequired = formData.get("pinRequired") === "true";
-
-  if (!pinRequired) {
-    const profile = await getFinanceProfile(session.profileId);
-    const pin = (formData.get("pin") as string)?.trim() ?? "";
-    const confirmPin = (formData.get("confirmPin") as string)?.trim() ?? "";
-
-    if (!profile.net_worth_pin_hash) {
-      if (!isValidPin(pin)) {
-        return { error: "PIN must be exactly 6 digits." };
-      }
-      if (pin !== confirmPin) {
-        return { error: "PINs do not match." };
-      }
-      const setupResult = await setNetWorthPin(session.profileId, pin);
-      if ("error" in setupResult && setupResult.error) {
-        return { error: setupResult.error };
-      }
-    } else {
-      if (!isValidPin(pin)) {
-        return { error: "Enter your PIN to disable protection." };
-      }
-      const pinResult = await verifyNetWorthPin(session.profileId, pin);
-      if ("error" in pinResult && pinResult.error) {
-        return { error: pinResult.error };
-      }
-    }
-  }
-
-  const result = await setNetWorthPinRequired(session.profileId, pinRequired);
-  if ("error" in result && result.error) {
-    return { error: result.error };
-  }
-
-  if (pinRequired) {
-    await clearNetWorthUnlock();
-  }
-
-  revalidatePath("/");
-  return {
-    success: pinRequired
-      ? "PIN is now required to view net worth."
-      : "Net worth can be viewed without PIN.",
-  };
-}
-
-async function canAccessNetWorthFeatures(profileId: number) {
-  const profile = await getFinanceProfile(profileId);
-  if (!profile.net_worth_pin_required) {
-    return true;
-  }
-  return isNetWorthUnlocked(profileId);
-}
-
-export async function transferToAllowanceAction(
-  _prev: FinanceActionState | null,
-  formData: FormData
-): Promise<FinanceActionState | null> {
-  const session = await getSession();
-  if (!session) {
-    return { error: "You must be signed in." };
-  }
-
-  const unlocked = await canAccessNetWorthFeatures(session.profileId);
-  if (!unlocked) {
-    return { error: "Unlock net worth first." };
-  }
-
-  const profile = await getFinanceProfile(session.profileId);
-  if (profile.net_worth_pin_hash) {
-    const pin = (formData.get("pin") as string).trim();
-    const pinResult = await verifyNetWorthPin(session.profileId, pin);
-    if ("error" in pinResult && pinResult.error) {
-      return { error: pinResult.error };
-    }
-  }
-
-  const amount = Number.parseFloat(formData.get("amount") as string);
-  const result = await transferToAllowance(session.profileId, amount);
-  if ("error" in result && result.error) {
-    return { error: result.error };
-  }
-
-  revalidatePath("/");
-  return { success: "Transfer to allowance completed." };
-}
-
-export async function transferToNetWorthAction(
-  _prev: FinanceActionState | null,
-  formData: FormData
-): Promise<FinanceActionState | null> {
-  const session = await getSession();
-  if (!session) {
-    return { error: "You must be signed in." };
-  }
-
-  const pin = (formData.get("pin") as string | null)?.trim() ?? "";
-  const profile = await getFinanceProfile(session.profileId);
-
-  if (profile.net_worth_pin_hash) {
-    if (!isValidPin(pin)) {
-      return { error: "Enter your 6-digit PIN." };
-    }
-    const pinResult = await verifyNetWorthPin(session.profileId, pin);
-    if ("error" in pinResult && pinResult.error) {
-      return { error: pinResult.error };
-    }
-  }
-
-  const amount = Number.parseFloat(formData.get("amount") as string);
-  const result = await transferToNetWorth(session.profileId, amount);
-  if ("error" in result && result.error) {
-    return { error: result.error };
-  }
-
-  revalidatePath("/");
-  return { success: "Transfer to net worth completed." };
 }
 
 export async function loadFinanceData() {
@@ -366,34 +148,51 @@ export async function loadFinanceData() {
     return {
       transactions: [],
       fundTransfers: [],
-      financeProfile: null,
-      netWorthUnlocked: false,
+      balanceCards: [],
+      unlockedCardIds: [] as number[],
+      grandNetWorthVisible: false,
+      hasPin: false,
+      pinRequired: true,
       error: "Not signed in.",
     };
   }
 
   try {
-    const [transactions, fundTransfers, financeProfile, netWorthUnlocked] =
-      await Promise.all([
-        getTransactions(session.profileId),
-        getFundTransfers(session.profileId),
-        getFinanceProfileSafe(session.profileId),
-        isNetWorthUnlocked(session.profileId),
-      ]);
+    const [
+      transactions,
+      fundTransfers,
+      balanceCards,
+      unlockedCardIds,
+      grandNetWorthVisible,
+      pinSettings,
+    ] = await Promise.all([
+      getTransactions(session.profileId),
+      getFundTransfers(session.profileId),
+      loadBalanceCards(session.profileId),
+      getUnlockedCardIds(session.profileId),
+      isGrandNetWorthVisible(session.profileId),
+      getFinancePinSettings(session.profileId),
+    ]);
 
     return {
       transactions,
       fundTransfers,
-      financeProfile,
-      netWorthUnlocked,
-      error: financeProfile ? null : "Balance columns not set up yet. Run database setup.",
+      balanceCards,
+      unlockedCardIds,
+      grandNetWorthVisible,
+      hasPin: Boolean(pinSettings.pin_hash),
+      pinRequired: pinSettings.pin_required,
+      error: null,
     };
   } catch (error) {
     return {
       transactions: [],
       fundTransfers: [],
-      financeProfile: null,
-      netWorthUnlocked: false,
+      balanceCards: [],
+      unlockedCardIds: [] as number[],
+      grandNetWorthVisible: false,
+      hasPin: false,
+      pinRequired: true,
       error:
         error instanceof Error ? error.message : "Failed to load finance data.",
     };

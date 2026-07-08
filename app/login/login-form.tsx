@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { signIn, signUp, type AuthState } from "./actions";
 import { PasswordField } from "./password-field";
@@ -16,58 +17,68 @@ export function LoginForm() {
   const formAction = isSignUp ? signUpAction : signInAction;
   const isPending = isSignUp ? signUpPending : signInPending;
 
-  function switchMode(next: AuthMode) {
-    setMode(next);
-  }
-
   return (
     <div>
       <div className="mb-6 flex rounded-lg border border-white/10 bg-white/5 p-1">
-        <ModeButton active={!isSignUp} onClick={() => switchMode("signin")}>
+        <ModeButton active={!isSignUp} onClick={() => setMode("signin")}>
           Sign in
         </ModeButton>
-        <ModeButton active={isSignUp} onClick={() => switchMode("signup")}>
+        <ModeButton active={isSignUp} onClick={() => setMode("signup")}>
           Sign up
         </ModeButton>
       </div>
 
       <form key={mode} action={formAction} className="space-y-5">
         {state?.error && (
-          <div
-            className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-            role="alert"
-          >
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300" role="alert">
             {state.error}
           </div>
         )}
 
         {state?.success && (
-          <div
-            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300"
-            role="status"
-          >
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300" role="status">
             {state.success}
           </div>
         )}
 
-        <TextField
-          id="email"
-          label="Email or username"
-          type="text"
-          name="email"
-          autoComplete="username"
-          required
-          placeholder="you@company.com or username"
-        />
-
-        {isSignUp && (
+        {isSignUp ? (
+          <>
+            <TextField
+              id="username"
+              label="Username"
+              type="text"
+              name="username"
+              autoComplete="username"
+              required
+              placeholder="your_username"
+            />
+            <TextField
+              id="signupEmail"
+              label="Email address"
+              type="email"
+              name="signupEmail"
+              autoComplete="email"
+              required
+              placeholder="you@company.com"
+            />
+            <TextField
+              id="fullName"
+              label="Full name"
+              type="text"
+              name="fullName"
+              autoComplete="name"
+              placeholder="Jane Doe"
+            />
+          </>
+        ) : (
           <TextField
-            id="fullName"
-            label="Full name"
+            id="email"
+            label="Email or username"
             type="text"
-            name="fullName"
-            autoComplete="name"
-            placeholder="Jane Doe"
+            name="email"
+            autoComplete="username"
+            required
+            placeholder="you@company.com or username"
           />
         )}
 
@@ -91,10 +102,21 @@ export function LoginForm() {
           />
         )}
 
+        {!isSignUp && (
+          <div className="text-right">
+            <Link
+              href="/login/forgot"
+              className="text-sm text-emerald-400 transition hover:text-emerald-300"
+            >
+              Forgot password?
+            </Link>
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={isPending}
-          className="mt-2 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-2 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
         >
           {isPending
             ? isSignUp
@@ -123,9 +145,7 @@ function ModeButton({
       type="button"
       onClick={onClick}
       className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
-        active
-          ? "bg-emerald-600 text-white shadow-sm"
-          : "text-slate-400 hover:text-slate-200"
+        active ? "bg-emerald-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
       }`}
     >
       {children}

@@ -1,12 +1,14 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { DeductFrom, FinanceSummary, Transaction, TransactionType } from "@/lib/types/finance";
+import type { FinanceSummary, Transaction, TransactionType } from "@/lib/types/finance";
+
+export type TransactionWithCard = Transaction & { card_name?: string };
 
 export async function getTransactions(profileId: number) {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("transactions")
     .select(
-      "id, profile_id, type, amount, description, category, deduct_from, created_at"
+      "id, profile_id, type, amount, description, category, card_id, deduct_from, created_at, balance_cards(name)"
     )
     .eq("profile_id", profileId)
     .order("created_at", { ascending: false });
@@ -15,10 +17,25 @@ export async function getTransactions(profileId: number) {
     throw new Error(error.message);
   }
 
-  return (data ?? []).map((row) => ({
-    ...row,
-    amount: Number(row.amount),
-  })) as Transaction[];
+  return (data ?? []).map((row) => {
+    const cardRelation = row.balance_cards as { name: string } | { name: string }[] | null;
+    const cardName = Array.isArray(cardRelation)
+      ? cardRelation[0]?.name
+      : cardRelation?.name;
+
+    return {
+      id: row.id,
+      profile_id: row.profile_id,
+      type: row.type,
+      amount: Number(row.amount),
+      description: row.description,
+      category: row.category,
+      card_id: row.card_id,
+      deduct_from: row.deduct_from,
+      created_at: row.created_at,
+      card_name: cardName,
+    } as TransactionWithCard;
+  });
 }
 
 export function getFinanceSummary(transactions: Transaction[]): FinanceSummary {
@@ -43,7 +60,7 @@ export async function addTransaction(input: {
   amount: number;
   description: string;
   category: string | null;
-  deductFrom?: DeductFrom | null;
+  cardId: number;
 }) {
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -54,7 +71,7 @@ export async function addTransaction(input: {
       amount: input.amount,
       description: input.description,
       category: input.category,
-      deduct_from: input.deductFrom ?? "allowance",
+      card_id: input.cardId,
     })
     .select("id")
     .single();
@@ -64,6 +81,27 @@ export async function addTransaction(input: {
   }
 
   return { id: data.id as number };
+}
+
+export async function getTransaction(profileId: number, transactionId: number) {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("id, type, amount, card_id")
+    .eq("profile_id", profileId)
+    .eq("id", transactionId)
+    .single();
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return {
+    transaction: {
+      ...data,
+      amount: Number(data.amount),
+    },
+  };
 }
 
 export async function deleteTransaction(profileId: number, transactionId: number) {

@@ -3,10 +3,16 @@ import { type NextRequest, NextResponse } from "next/server";
 
 export async function updateSession(request: NextRequest) {
   const session = await getSessionFromRequest(request);
-  const isLoginPage = request.nextUrl.pathname.startsWith("/login");
-  const isAuthCallback = request.nextUrl.pathname.startsWith("/auth");
+  const pathname = request.nextUrl.pathname;
+  const isLoginPage = pathname.startsWith("/login");
+  const isAuthCallback = pathname.startsWith("/auth");
+  const isHome = pathname === "/";
 
-  if (!session && !isLoginPage && !isAuthCallback) {
+  if (!isHome && !isLoginPage && !isAuthCallback) {
+    return NextResponse.next();
+  }
+
+  if (!session && isHome) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

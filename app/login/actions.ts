@@ -48,13 +48,18 @@ export async function signUp(
   _prev: void | AuthState | null,
   formData: FormData
 ): Promise<AuthState | null> {
-  const login = (formData.get("email") as string).trim();
+  const username = (formData.get("username") as string).trim();
+  const email = (formData.get("signupEmail") as string).trim();
   const password = formData.get("password") as string;
   const confirmPassword = formData.get("confirmPassword") as string;
   const fullName = (formData.get("fullName") as string | null)?.trim() || null;
 
-  if (!login) {
-    return { error: "Email or username is required." };
+  if (!username) {
+    return { error: "Username is required." };
+  }
+
+  if (!email) {
+    return { error: "Email is required." };
   }
 
   if (password !== confirmPassword) {
@@ -67,7 +72,8 @@ export async function signUp(
 
   try {
     const result = await createProfile({
-      username: login,
+      username,
+      email,
       password,
       fullName,
     });
