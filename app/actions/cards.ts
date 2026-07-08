@@ -4,13 +4,16 @@ import {
   createBalanceCard,
   deleteBalanceCard,
   ensureDefaultCards,
+  getBalanceCard,
   getBalanceCards,
   renameBalanceCard,
   setCardHidden,
+  setCardPinRequired,
   transferBetweenCards,
 } from "@/lib/finance/balance-cards";
 import {
   changeFinancePin,
+  getFinancePinSettings,
   isValidPin,
   setFinancePin,
   setFinancePinRequired,
@@ -74,11 +77,19 @@ export async function updateCardHiddenAction(
   const cardId = Number.parseInt(formData.get("cardId") as string, 10);
   const isHidden = formData.get("isHidden") === "true";
 
-  if (!isHidden) {
-    const pin = (formData.get("pin") as string)?.trim() ?? "";
-    const pinResult = await verifyFinancePin(auth.session!.profileId, pin);
-    if ("error" in pinResult && pinResult.error) {
-      return { error: pinResult.error };
+  const cardResult = await getBalanceCard(auth.session!.profileId, cardId);
+  if ("error" in cardResult && cardResult.error) {
+    return { error: cardResult.error };
+  }
+
+  if (!isHidden && cardResult.card?.pin_required) {
+    const settings = await getFinancePinSettings(auth.session!.profileId);
+    if (settings.pin_hash) {
+      const pin = (formData.get("pin") as string)?.trim() ?? "";
+      const pinResult = await verifyFinancePin(auth.session!.profileId, pin);
+      if ("error" in pinResult && pinResult.error) {
+        return { error: pinResult.error };
+      }
     }
   }
 
@@ -222,6 +233,68 @@ export async function lockCardAction(cardId: number) {
   return { success: true };
 }
 
+export async function unlockCardQuickAction(cardId: number) {
+  const auth = await requireSession();
+  if ("error" in auth && auth.error) {
+    return { error: auth.error };
+  }
+
+  await unlockCard(auth.session!.profileId, cardId);
+  return { success: true };
+}
+
+export async function updateCardPinRequiredAction(
+  _prev: CardActionState | null,
+  formData: FormData
+): Promise<CardActionState | null> {
+  const auth = await requireSession();
+  if ("error" in auth && auth.error) {
+    return { error: auth.error };
+  }
+
+  const cardId = Number.parseInt(formData.get("cardId") as string, 10);
+  const pinRequired = formData.get("pinRequired") === "true";
+
+  const cardResult = await getBalanceCard(auth.session!.profileId, cardId);
+  if ("error" in cardResult && cardResult.error) {
+    return { error: cardResult.error };
+  }
+
+  if (!pinRequired && cardResult.card?.pin_required) {
+    const settings = await getFinancePinSettings(auth.session!.profileId);
+    if (settings.pin_hash) {
+      const pin = (formData.get("pin") as string)?.trim() ?? "";
+      if (!isValidPin(pin)) {
+        return { error: "Enter your PIN to switch to quick show/hide." };
+      }
+      const pinResult = await verifyFinancePin(auth.session!.profileId, pin);
+      if ("error" in pinResult && pinResult.error) {
+        return { error: pinResult.error };
+      }
+    }
+  }
+
+  const result = await setCardPinRequired(
+    auth.session!.profileId,
+    cardId,
+    pinRequired
+  );
+  if ("error" in result && result.error) {
+    return { error: result.error };
+  }
+
+  if (pinRequired) {
+    await lockCard(auth.session!.profileId, cardId);
+  }
+
+  revalidatePath("/");
+  return {
+    success: pinRequired
+      ? "PIN is now required to view this card balance."
+      : "You can show or hide this card with one tap.",
+  };
+}
+
 export async function showGrandNetWorthAction() {
   const auth = await requireSession();
   if ("error" in auth && auth.error) {
@@ -358,7 +431,7 @@ export async function transferBetweenCardsAction(
 
   const unlockedCardIds = await getUnlockedCardIds(auth.session!.profileId);
   const needsPin = [fromCard, toCard].some(
-    (c) => c.is_hidden && !unlockedCardIds.includes(c.id)
+    (c) => c.is_hidden && c.pin_required && !unlockedCardIds.includes(c.id)
   );
 
   if (needsPin) {

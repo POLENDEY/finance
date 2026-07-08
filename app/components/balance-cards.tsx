@@ -12,7 +12,9 @@ import {
   setupFinancePinAction,
   showGrandNetWorthAction,
   transferBetweenCardsAction,
+  unlockCardQuickAction,
   updateCardHiddenAction,
+  updateCardPinRequiredAction,
   updateFinancePinRequiredAction,
   verifyFinancePinAction,
   type CardActionState,
@@ -87,29 +89,30 @@ export function BalanceCards({
     if (!card.is_hidden) {
       return true;
     }
-    if (!pinRequired) {
-      return true;
-    }
     return localUnlockedIds.includes(card.id);
   }
 
   function isGrandVisible() {
-    if (!pinRequired) {
-      return localGrandVisible;
-    }
     return localGrandVisible;
   }
 
   function requestUnlock(target: PinTarget) {
-    if (!pinRequired) {
-      if (target.type === "card") {
+    if (target.type === "card") {
+      const card = cards.find((item) => item.id === target.cardId);
+      if (card && !card.pin_required) {
         setLocalUnlockedIds((ids) =>
           ids.includes(target.cardId) ? ids : [...ids, target.cardId]
         );
-      } else {
-        setLocalGrandVisible(true);
-        void showGrandNetWorthAction();
+        void unlockCardQuickAction(target.cardId);
+        return;
       }
+      setPinModal({ mode: hasPin ? "verify" : "setup", target });
+      return;
+    }
+
+    if (!pinRequired) {
+      setLocalGrandVisible(true);
+      void showGrandNetWorthAction();
       return;
     }
     setPinModal({ mode: hasPin ? "verify" : "setup", target });
@@ -224,9 +227,8 @@ export function BalanceCards({
                       card={card}
                       visible={isCardVisible(card)}
                       allCards={cards}
-                      hasPin={hasPin}
-                      pinRequired={pinRequired}
-                      unlockedCardIds={localUnlockedIds}
+                    hasPin={hasPin}
+                    unlockedCardIds={localUnlockedIds}
                       transferOpen={transferFromId === card.id}
                       renaming={renamingId === card.id}
                       onToggleVisibility={() => handleToggleCardVisibility(card)}
@@ -293,9 +295,8 @@ export function BalanceCards({
                 card={card}
                 visible={isCardVisible(card)}
                 allCards={cards}
-                hasPin={hasPin}
-                pinRequired={pinRequired}
-                unlockedCardIds={localUnlockedIds}
+                    hasPin={hasPin}
+                    unlockedCardIds={localUnlockedIds}
                 transferOpen={transferFromId === card.id}
                 renaming={renamingId === card.id}
                 onToggleVisibility={() => handleToggleCardVisibility(card)}
@@ -356,7 +357,6 @@ function BalanceCardItem({
   visible,
   allCards,
   hasPin,
-  pinRequired,
   unlockedCardIds,
   transferOpen,
   renaming,
@@ -372,7 +372,6 @@ function BalanceCardItem({
   visible: boolean;
   allCards: BalanceCard[];
   hasPin: boolean;
-  pinRequired: boolean;
   unlockedCardIds: number[];
   transferOpen: boolean;
   renaming: boolean;
@@ -427,7 +426,7 @@ function BalanceCardItem({
             ? card.is_hidden
               ? "Protected balance — hide when done"
               : "Available for deposits & expenses"
-            : pinRequired
+            : card.pin_required
               ? "Hidden — enter PIN to view"
               : "Hidden — tap eye to view"}
         </p>
@@ -452,6 +451,12 @@ function BalanceCardItem({
         <HideBalanceSetting
           cardId={card.id}
           isHidden={card.is_hidden}
+          pinRequired={card.pin_required}
+          hasPin={hasPin}
+        />
+        <CardPinRequiredSetting
+          cardId={card.id}
+          pinRequired={card.pin_required}
           hasPin={hasPin}
         />
 
@@ -467,7 +472,6 @@ function BalanceCardItem({
           <TransferForm
             fromCard={card}
             targetCards={allCards.filter((c) => c.id !== card.id)}
-            pinRequired={pinRequired}
             unlockedCardIds={unlockedCardIds}
             onSuccess={onTransferDone}
           />
@@ -699,10 +703,12 @@ function FinancePinRequiredSetting({
 function HideBalanceSetting({
   cardId,
   isHidden,
+  pinRequired,
   hasPin,
 }: {
   cardId: number;
   isHidden: boolean;
+  pinRequired: boolean;
   hasPin: boolean;
 }) {
   const router = useRouter();
@@ -765,6 +771,91 @@ function HideBalanceSetting({
       {showConfirmModal && (
         <DisableHideModal
           cardId={cardId}
+          pinRequired={pinRequired}
+          hasPin={hasPin}
+          formAction={formAction}
+          isPending={isPending}
+          error={state?.error}
+          onClose={() => setShowConfirmModal(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function CardPinRequiredSetting({
+  cardId,
+  pinRequired,
+  hasPin,
+}: {
+  cardId: number;
+  pinRequired: boolean;
+  hasPin: boolean;
+}) {
+  const router = useRouter();
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [state, formAction, isPending] = useActionState(
+    updateCardPinRequiredAction,
+    null as CardActionState | null
+  );
+
+  useEffect(() => {
+    if (state?.success) {
+      setShowConfirmModal(false);
+      router.refresh();
+    }
+  }, [state?.success, router]);
+
+  return (
+    <>
+      <form id={`card-pin-form-${cardId}`} action={formAction} className="space-y-2">
+        <input type="hidden" name="cardId" value={cardId} />
+        <input type="hidden" name="pinRequired" value={pinRequired ? "false" : "true"} />
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-white/60 px-3 py-2 dark:bg-zinc-950/30">
+          <div>
+            <p className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
+              {pinRequired ? "Require PIN to reveal" : "Quick show / hide"}
+            </p>
+            <p className="text-[11px] text-zinc-500">
+              {pinRequired
+                ? "Enter your PIN each time you reveal this card balance"
+                : "Tap the eye icon to show or hide instantly"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (pinRequired) {
+                setShowConfirmModal(true);
+              } else {
+                const form = document.getElementById(
+                  `card-pin-form-${cardId}`
+                ) as HTMLFormElement;
+                form?.requestSubmit();
+              }
+            }}
+            disabled={isPending}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-60 ${
+              pinRequired ? "bg-violet-600" : "bg-zinc-300 dark:bg-zinc-600"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${
+                pinRequired ? "left-5" : "left-0.5"
+              }`}
+            />
+          </button>
+        </div>
+        {state?.error && !showConfirmModal && (
+          <p className="text-xs text-red-600 dark:text-red-300">{state.error}</p>
+        )}
+        {state?.success && (
+          <p className="text-xs text-emerald-600 dark:text-emerald-300">{state.success}</p>
+        )}
+      </form>
+
+      {showConfirmModal && (
+        <DisablePinModal
           hasPin={hasPin}
           formAction={formAction}
           isPending={isPending}
@@ -778,6 +869,7 @@ function HideBalanceSetting({
 
 function DisableHideModal({
   cardId,
+  pinRequired,
   hasPin,
   formAction,
   isPending,
@@ -785,20 +877,23 @@ function DisableHideModal({
   onClose,
 }: {
   cardId: number;
+  pinRequired: boolean;
   hasPin: boolean;
   formAction: (payload: FormData) => void;
   isPending: boolean;
   error?: string;
   onClose: () => void;
 }) {
+  const needsPin = pinRequired && hasPin;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
         <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-          {hasPin ? "Enter your PIN" : "Show balance"}
+          {needsPin ? "Enter your PIN" : "Show balance"}
         </h3>
         <p className="mt-1 text-sm text-zinc-500">
-          {hasPin
+          {needsPin
             ? "Enter your PIN to make this card balance visible again."
             : "This card balance will no longer be hidden."}
         </p>
@@ -810,7 +905,7 @@ function DisableHideModal({
               {error}
             </div>
           )}
-          {hasPin && (
+          {needsPin && (
             <PinInput id={`show-pin-${cardId}`} name="pin" label="PIN" />
           )}
           <div className="flex gap-2">
@@ -986,13 +1081,11 @@ function DeleteCardButton({
 function TransferForm({
   fromCard,
   targetCards,
-  pinRequired,
   unlockedCardIds,
   onSuccess,
 }: {
   fromCard: BalanceCard;
   targetCards: BalanceCard[];
-  pinRequired: boolean;
   unlockedCardIds: number[];
   onSuccess: () => void;
 }) {
@@ -1000,11 +1093,10 @@ function TransferForm({
     transferBetweenCardsAction,
     null as CardActionState | null
   );
-  const needsPin =
-    pinRequired &&
-    [fromCard, ...targetCards].some(
-      (c) => c.is_hidden && !unlockedCardIds.includes(c.id)
-    );
+  const needsPin = [fromCard, ...targetCards].some(
+    (card) =>
+      card.is_hidden && card.pin_required && !unlockedCardIds.includes(card.id)
+  );
 
   useEffect(() => {
     if (state?.success) {
