@@ -12,7 +12,7 @@ if (!password) {
 }
 
 const encoded = encodeURIComponent(password);
-const projectRef = "mgmjawvtxmayhgqhucyb";
+const projectRef = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];
 const urls = [
   process.env.SUPABASE_DB_URL,
   `postgresql://postgres.${projectRef}:${encoded}@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres`,

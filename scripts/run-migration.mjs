@@ -7,7 +7,7 @@ dotenv.config({ path: resolve(process.cwd(), ".env.local") });
 
 const file = process.argv[2] ?? "20260707090000_add_balances_and_pin.sql";
 const password = process.env.SUPABASE_DB_PASSWORD;
-const projectRef = "mgmjawvtxmayhgqhucyb";
+const projectRef = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];
 const url =
   process.env.SUPABASE_DB_URL ??
   (password

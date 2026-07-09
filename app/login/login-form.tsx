@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useActionState, useState } from "react";
 import { signIn, signUp, type AuthState } from "./actions";
 import { PasswordField } from "./password-field";
+import { PasswordStrengthHint } from "./password-strength-hint";
 
 type AuthMode = "signin" | "signup";
 
 export function LoginForm() {
   const [mode, setMode] = useState<AuthMode>("signin");
+  const [signupPassword, setSignupPassword] = useState("");
   const [signInState, signInAction, signInPending] = useActionState(signIn, null);
   const [signUpState, signUpAction, signUpPending] = useActionState(signUp, null);
 
@@ -20,7 +22,7 @@ export function LoginForm() {
   return (
     <div>
       <div className="mb-6 flex rounded-lg border border-white/10 bg-white/5 p-1">
-        <ModeButton active={!isSignUp} onClick={() => setMode("signin")}>
+        <ModeButton active={!isSignUp} onClick={() => { setMode("signin"); setSignupPassword(""); }}>
           Sign in
         </ModeButton>
         <ModeButton active={isSignUp} onClick={() => setMode("signup")}>
@@ -82,14 +84,23 @@ export function LoginForm() {
           />
         )}
 
-        <PasswordField
-          id="password"
-          label="Password"
-          name="password"
-          autoComplete={isSignUp ? "new-password" : "current-password"}
-          required
-          placeholder="••••••••"
-        />
+        {isSignUp ? (
+          <SignupPasswordField
+            value={signupPassword}
+            onChange={setSignupPassword}
+          />
+        ) : (
+          <PasswordField
+            id="password"
+            label="Password"
+            name="password"
+            autoComplete="current-password"
+            required
+            placeholder="••••••••"
+          />
+        )}
+
+        {isSignUp && <PasswordStrengthHint password={signupPassword} />}
 
         {isSignUp && (
           <PasswordField
@@ -150,6 +161,34 @@ function ModeButton({
     >
       {children}
     </button>
+  );
+}
+
+function SignupPasswordField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-slate-300">
+        Password
+      </label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        autoComplete="new-password"
+        required
+        minLength={6}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="••••••••"
+        className="w-full rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20"
+      />
+    </div>
   );
 }
 

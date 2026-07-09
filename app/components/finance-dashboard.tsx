@@ -43,6 +43,34 @@ function formatDate(value: string) {
 
 const TRANSACTIONS_PAGE_SIZE = 5;
 
+function toLocalDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function transactionDateKey(value: string) {
+  return toLocalDateKey(new Date(value));
+}
+
+function formatDisplayDate(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-PH", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
+
+function shiftDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  return toLocalDateKey(date);
+}
+
 export function FinanceDashboard({
   transactions,
   fundTransfers,
@@ -62,6 +90,22 @@ export function FinanceDashboard({
     null as FinanceActionState | null
   );
   const [transactionPage, setTransactionPage] = useState(0);
+  const [selectedDate, setSelectedDate] = useState(() => toLocalDateKey(new Date()));
+
+  const todayKey = toLocalDateKey(new Date());
+  const datedTransactions = transactions.filter(
+    (transaction) => transactionDateKey(transaction.created_at) === selectedDate
+  );
+  const dailyExpenseTotal = datedTransactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const dailyDepositTotal = datedTransactions
+    .filter((transaction) => transaction.type === "deposit")
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+
+  const availableDates = Array.from(
+    new Set(transactions.map((transaction) => transactionDateKey(transaction.created_at)))
+  ).sort((a, b) => b.localeCompare(a));
 
   useEffect(() => {
     if (balanceCards.length > 0 && !balanceCards.some((c) => c.id === selectedCardId)) {
@@ -71,9 +115,9 @@ export function FinanceDashboard({
 
   const totalTransactionPages = Math.max(
     1,
-    Math.ceil(transactions.length / TRANSACTIONS_PAGE_SIZE)
+    Math.ceil(datedTransactions.length / TRANSACTIONS_PAGE_SIZE)
   );
-  const pagedTransactions = transactions.slice(
+  const pagedTransactions = datedTransactions.slice(
     transactionPage * TRANSACTIONS_PAGE_SIZE,
     transactionPage * TRANSACTIONS_PAGE_SIZE + TRANSACTIONS_PAGE_SIZE
   );
@@ -81,12 +125,16 @@ export function FinanceDashboard({
   useEffect(() => {
     const lastPage = Math.max(
       0,
-      Math.ceil(transactions.length / TRANSACTIONS_PAGE_SIZE) - 1
+      Math.ceil(datedTransactions.length / TRANSACTIONS_PAGE_SIZE) - 1
     );
     if (transactionPage > lastPage) {
       setTransactionPage(lastPage);
     }
-  }, [transactions.length, transactionPage]);
+  }, [datedTransactions.length, transactionPage]);
+
+  useEffect(() => {
+    setTransactionPage(0);
+  }, [selectedDate]);
 
   return (
     <div className="space-y-8">
@@ -188,15 +236,109 @@ export function FinanceDashboard({
       </section>
 
       <section className="rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            Recent transactions
-          </h2>
+        <div className="border-b border-zinc-200 px-4 py-4 sm:px-6 dark:border-zinc-800">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                Recent transactions
+              </h2>
+              <p className="mt-1 text-sm text-zinc-500">
+                {selectedDate === todayKey
+                  ? "Showing today's activity"
+                  : `Showing ${formatDisplayDate(selectedDate)}`}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate((date) => shiftDateKey(date, -1))}
+                  className="rounded-lg border border-zinc-200 p-2 text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  aria-label="Previous day"
+                >
+                  <ChevronLeftIcon />
+                </button>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  max={todayKey}
+                  onChange={(event) => setSelectedDate(event.target.value)}
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedDate((date) => {
+                      const next = shiftDateKey(date, 1);
+                      return next > todayKey ? todayKey : next;
+                    })
+                  }
+                  disabled={selectedDate >= todayKey}
+                  className="rounded-lg border border-zinc-200 p-2 text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  aria-label="Next day"
+                >
+                  <ChevronRightIcon />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDate(todayKey)}
+                disabled={selectedDate === todayKey}
+                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Today
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-900/50 dark:bg-rose-950/30">
+              <p className="text-xs font-medium uppercase tracking-wide text-rose-600 dark:text-rose-400">
+                Expenses this day
+              </p>
+              <p className="mt-1 text-xl font-semibold text-rose-700 dark:text-rose-300">
+                {formatMoney(dailyExpenseTotal)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+              <p className="text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                Deposits this day
+              </p>
+              <p className="mt-1 text-xl font-semibold text-emerald-700 dark:text-emerald-300">
+                {formatMoney(dailyDepositTotal)}
+              </p>
+            </div>
+          </div>
+
+          {availableDates.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {availableDates.slice(0, 7).map((dateKey) => (
+                <button
+                  key={dateKey}
+                  type="button"
+                  onClick={() => setSelectedDate(dateKey)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    selectedDate === dateKey
+                      ? "bg-emerald-600 text-white"
+                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  {dateKey === todayKey ? "Today" : formatDisplayDate(dateKey)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {transactions.length === 0 ? (
           <p className="px-6 py-10 text-center text-sm text-zinc-500">
             No transactions yet. Add your first deposit or expense above.
+          </p>
+        ) : datedTransactions.length === 0 ? (
+          <p className="px-6 py-10 text-center text-sm text-zinc-500">
+            No transactions on {formatDisplayDate(selectedDate)}. Pick another date to view
+            history.
           </p>
         ) : (
           <>
@@ -381,6 +523,22 @@ function ChevronDownIcon({ className = "" }: { className?: string }) {
       aria-hidden="true"
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+    </svg>
+  );
+}
+
+function ChevronLeftIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
     </svg>
   );
 }
