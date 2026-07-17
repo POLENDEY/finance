@@ -4,8 +4,8 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import type { BalanceCard, FundTransfer, TransactionWithCard } from "@/lib/types/finance";
 import {
   createTransactionAction,
-  deleteTransactionAction,
   deleteTransactionFormAction,
+  updateTransactionAction,
   type FinanceActionState,
 } from "@/app/actions/finance";
 import { BalanceCards } from "@/app/components/balance-cards";
@@ -15,6 +15,10 @@ import {
   EXPENSE_CATEGORIES,
   type TransactionType,
 } from "@/lib/types/finance";
+import {
+  toDateInputValue,
+  transactionTimestampToDateInput,
+} from "@/lib/finance/transaction-date";
 
 type FinanceDashboardProps = {
   transactions: TransactionWithCard[];
@@ -43,15 +47,8 @@ function formatDate(value: string) {
 
 const TRANSACTIONS_PAGE_SIZE = 5;
 
-function toLocalDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function transactionDateKey(value: string) {
-  return toLocalDateKey(new Date(value));
+  return transactionTimestampToDateInput(value);
 }
 
 function formatDisplayDate(dateKey: string) {
@@ -68,7 +65,7 @@ function shiftDateKey(dateKey: string, days: number) {
   const [year, month, day] = dateKey.split("-").map(Number);
   const date = new Date(year, month - 1, day);
   date.setDate(date.getDate() + days);
-  return toLocalDateKey(date);
+  return toDateInputValue(date);
 }
 
 export function FinanceDashboard({
@@ -90,9 +87,11 @@ export function FinanceDashboard({
     null as FinanceActionState | null
   );
   const [transactionPage, setTransactionPage] = useState(0);
-  const [selectedDate, setSelectedDate] = useState(() => toLocalDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()));
+  const [transactionDate, setTransactionDate] = useState(selectedDate);
+  const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
 
-  const todayKey = toLocalDateKey(new Date());
+  const todayKey = toDateInputValue(new Date());
   const datedTransactions = transactions.filter(
     (transaction) => transactionDateKey(transaction.created_at) === selectedDate
   );
@@ -107,34 +106,22 @@ export function FinanceDashboard({
     new Set(transactions.map((transaction) => transactionDateKey(transaction.created_at)))
   ).sort((a, b) => b.localeCompare(a));
 
-  useEffect(() => {
-    if (balanceCards.length > 0 && !balanceCards.some((c) => c.id === selectedCardId)) {
-      setSelectedCardId(balanceCards[0].id);
-    }
-  }, [balanceCards, selectedCardId]);
+  const effectiveSelectedCardId = balanceCards.some((card) => card.id === selectedCardId)
+    ? selectedCardId
+    : balanceCards[0]?.id ?? 0;
 
-  const totalTransactionPages = Math.max(
-    1,
-    Math.ceil(datedTransactions.length / TRANSACTIONS_PAGE_SIZE)
-  );
+  const totalTransactionPages = Math.max(1, Math.ceil(datedTransactions.length / TRANSACTIONS_PAGE_SIZE));
+  const safeTransactionPage = Math.min(transactionPage, totalTransactionPages - 1);
   const pagedTransactions = datedTransactions.slice(
-    transactionPage * TRANSACTIONS_PAGE_SIZE,
-    transactionPage * TRANSACTIONS_PAGE_SIZE + TRANSACTIONS_PAGE_SIZE
+    safeTransactionPage * TRANSACTIONS_PAGE_SIZE,
+    safeTransactionPage * TRANSACTIONS_PAGE_SIZE + TRANSACTIONS_PAGE_SIZE
   );
 
-  useEffect(() => {
-    const lastPage = Math.max(
-      0,
-      Math.ceil(datedTransactions.length / TRANSACTIONS_PAGE_SIZE) - 1
-    );
-    if (transactionPage > lastPage) {
-      setTransactionPage(lastPage);
-    }
-  }, [datedTransactions.length, transactionPage]);
-
-  useEffect(() => {
+  function handleSelectedDateChange(dateKey: string) {
+    setSelectedDate(dateKey);
     setTransactionPage(0);
-  }, [selectedDate]);
+    setTransactionDate(dateKey);
+  }
 
   return (
     <div className="space-y-8">
@@ -182,15 +169,27 @@ export function FinanceDashboard({
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Field label={mode === "deposit" ? "Deposit to" : "Deduct from"}>
               <CardSelectDropdown
                 cards={balanceCards}
-                value={selectedCardId}
+                value={effectiveSelectedCardId}
                 onChange={setSelectedCardId}
                 disabled={balanceCards.length === 0}
               />
-              <input type="hidden" name="cardId" value={selectedCardId} />
+              <input type="hidden" name="cardId" value={effectiveSelectedCardId} />
+            </Field>
+
+            <Field label="Transaction date">
+              <input
+                name="transactionDate"
+                type="date"
+                max={todayKey}
+                value={transactionDate}
+                onChange={(event) => setTransactionDate(event.target.value)}
+                required
+                className={inputClass}
+              />
             </Field>
 
             <Field label="Amount">
@@ -253,7 +252,7 @@ export function FinanceDashboard({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedDate((date) => shiftDateKey(date, -1))}
+                  onClick={() => handleSelectedDateChange(shiftDateKey(selectedDate, -1))}
                   className="rounded-lg border border-zinc-200 p-2 text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   aria-label="Previous day"
                 >
@@ -263,16 +262,17 @@ export function FinanceDashboard({
                   type="date"
                   value={selectedDate}
                   max={todayKey}
-                  onChange={(event) => setSelectedDate(event.target.value)}
+                  onChange={(event) => handleSelectedDateChange(event.target.value)}
                   className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                 />
                 <button
                   type="button"
                   onClick={() =>
-                    setSelectedDate((date) => {
-                      const next = shiftDateKey(date, 1);
-                      return next > todayKey ? todayKey : next;
-                    })
+                    handleSelectedDateChange(
+                      shiftDateKey(selectedDate, 1) > todayKey
+                        ? todayKey
+                        : shiftDateKey(selectedDate, 1)
+                    )
                   }
                   disabled={selectedDate >= todayKey}
                   className="rounded-lg border border-zinc-200 p-2 text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -283,7 +283,7 @@ export function FinanceDashboard({
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedDate(todayKey)}
+                onClick={() => handleSelectedDateChange(todayKey)}
                 disabled={selectedDate === todayKey}
                 className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
@@ -317,7 +317,7 @@ export function FinanceDashboard({
                 <button
                   key={dateKey}
                   type="button"
-                  onClick={() => setSelectedDate(dateKey)}
+                  onClick={() => handleSelectedDateChange(dateKey)}
                   className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                     selectedDate === dateKey
                       ? "bg-emerald-600 text-white"
@@ -344,8 +344,18 @@ export function FinanceDashboard({
           <>
             <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
               {pagedTransactions.map((transaction) => (
-                <li key={transaction.id} className="flex items-center justify-between gap-4 px-6 py-4">
-                  <div className="flex items-start gap-3">
+                <li key={transaction.id} className="px-4 py-4 sm:px-6">
+                  {editingTransactionId === transaction.id ? (
+                    <TransactionEditForm
+                      transaction={transaction}
+                      cards={balanceCards}
+                      todayKey={todayKey}
+                      onCancel={() => setEditingTransactionId(null)}
+                      onSaved={() => setEditingTransactionId(null)}
+                    />
+                  ) : (
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
                     <span
                       className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg font-bold ${
                         transaction.type === "deposit"
@@ -385,8 +395,18 @@ export function FinanceDashboard({
                       {transaction.type === "deposit" ? "+" : "−"}
                       {formatMoney(transaction.amount)}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingTransactionId(transaction.id)}
+                      className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-emerald-600 dark:hover:bg-zinc-800"
+                      aria-label="Edit transaction"
+                    >
+                      <PencilIcon />
+                    </button>
                     <DeleteButton transactionId={transaction.id} />
                   </div>
+                  </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -400,7 +420,7 @@ export function FinanceDashboard({
                 Prev
               </button>
               <p className="text-xs text-zinc-500">
-                Page {transactionPage + 1} of {totalTransactionPages}
+                Page {safeTransactionPage + 1} of {totalTransactionPages}
               </p>
               <button
                 type="button"
@@ -512,6 +532,150 @@ function CardSelectDropdown({
   );
 }
 
+function TransactionEditForm({
+  transaction,
+  cards,
+  todayKey,
+  onCancel,
+  onSaved,
+}: {
+  transaction: TransactionWithCard;
+  cards: BalanceCard[];
+  todayKey: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  async function saveTransaction(
+    previousState: FinanceActionState | null,
+    formData: FormData
+  ) {
+    const result = await updateTransactionAction(previousState, formData);
+    if (result?.success) {
+      onSaved();
+    }
+    return result;
+  }
+
+  const [state, formAction, isPending] = useActionState(
+    saveTransaction,
+    null as FinanceActionState | null
+  );
+  const [mode, setMode] = useState<TransactionType>(transaction.type);
+  const [selectedCardId, setSelectedCardId] = useState<number>(
+    transaction.card_id ?? cards[0]?.id ?? 0
+  );
+
+  return (
+    <form action={formAction} className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+      <input type="hidden" name="transactionId" value={transaction.id} />
+      <input type="hidden" name="type" value={mode} />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            Edit transaction
+          </p>
+          <p className="text-xs text-zinc-500">
+            Changes will update the selected card balance automatically.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <TypeToggle active={mode === "deposit"} type="deposit" onClick={() => setMode("deposit")} />
+          <TypeToggle active={mode === "expense"} type="expense" onClick={() => setMode("expense")} />
+        </div>
+      </div>
+
+      {state?.error && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
+          {state.error}
+        </div>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Field label={mode === "deposit" ? "Deposit to" : "Deduct from"}>
+          <CardSelectDropdown
+            cards={cards}
+            value={selectedCardId}
+            onChange={setSelectedCardId}
+            disabled={cards.length === 0}
+          />
+          <input type="hidden" name="cardId" value={selectedCardId} />
+        </Field>
+
+        <Field label="Transaction date">
+          <input
+            name="transactionDate"
+            type="date"
+            max={todayKey}
+            defaultValue={transactionTimestampToDateInput(transaction.created_at)}
+            required
+            className={inputClass}
+          />
+        </Field>
+
+        <Field label="Amount">
+          <input
+            name="amount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            defaultValue={transaction.amount}
+            className={inputClass}
+          />
+        </Field>
+
+        <Field label={mode === "deposit" ? "Reason / source" : "Expense name / reason"}>
+          <input
+            name="description"
+            type="text"
+            required
+            defaultValue={transaction.description}
+            className={inputClass}
+          />
+        </Field>
+      </div>
+
+      {mode === "expense" && (
+        <div className="mt-4">
+          <Field label="Category">
+            <select
+              name="category"
+              required
+              defaultValue={transaction.category ?? ""}
+              className={inputClass}
+            >
+              <option value="">Select category</option>
+              {EXPENSE_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="submit"
+          disabled={isPending || cards.length === 0}
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
+        >
+          {isPending ? "Saving..." : "Save changes"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-white dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function ChevronDownIcon({ className = "" }: { className?: string }) {
   return (
     <svg
@@ -523,6 +687,14 @@ function ChevronDownIcon({ className = "" }: { className?: string }) {
       aria-hidden="true"
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
     </svg>
   );
 }

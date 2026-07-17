@@ -61,6 +61,7 @@ export async function addTransaction(input: {
   description: string;
   category: string | null;
   cardId: number;
+  createdAt: string;
 }) {
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -72,6 +73,7 @@ export async function addTransaction(input: {
       description: input.description,
       category: input.category,
       card_id: input.cardId,
+      created_at: input.createdAt,
     })
     .select("id")
     .single();
@@ -87,7 +89,7 @@ export async function getTransaction(profileId: number, transactionId: number) {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("transactions")
-    .select("id, type, amount, card_id")
+    .select("id, type, amount, description, category, card_id, created_at")
     .eq("profile_id", profileId)
     .eq("id", transactionId)
     .single();
@@ -102,6 +104,39 @@ export async function getTransaction(profileId: number, transactionId: number) {
       amount: Number(data.amount),
     },
   };
+}
+
+export async function updateTransaction(
+  profileId: number,
+  transactionId: number,
+  input: {
+    type: TransactionType;
+    amount: number;
+    description: string;
+    category: string | null;
+    cardId: number;
+    createdAt: string;
+  }
+) {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("transactions")
+    .update({
+      type: input.type,
+      amount: input.amount,
+      description: input.description,
+      category: input.category,
+      card_id: input.cardId,
+      created_at: input.createdAt,
+    })
+    .eq("profile_id", profileId)
+    .eq("id", transactionId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { success: true };
 }
 
 export async function deleteTransaction(profileId: number, transactionId: number) {

@@ -11,7 +11,12 @@ import {
   deleteTransaction,
   getTransaction,
   getTransactions,
+  updateTransaction,
 } from "@/lib/finance/transactions";
+import {
+  dateInputToTransactionTimestamp,
+  toDateInputValue,
+} from "@/lib/finance/transaction-date";
 import { getFinanceUnlockState } from "@/lib/auth/card-unlock";
 import { loadBalanceCards } from "@/app/actions/cards";
 import { getSession } from "@/lib/auth/session";
@@ -22,6 +27,20 @@ export type FinanceActionState = {
   error?: string;
   success?: string;
 };
+
+function parseTransactionDate(formData: FormData) {
+  const dateInput = ((formData.get("transactionDate") as string | null) ?? "").trim();
+  const createdAt = dateInputToTransactionTimestamp(dateInput);
+  if (!createdAt) {
+    return { error: "Choose a valid transaction date." };
+  }
+
+  if (dateInput && dateInput > toDateInputValue(new Date())) {
+    return { error: "Transaction date cannot be in the future." };
+  }
+
+  return { createdAt };
+}
 
 export async function createTransactionAction(
   _prev: FinanceActionState | null,
@@ -37,6 +56,10 @@ export async function createTransactionAction(
   const description = (formData.get("description") as string).trim();
   const category = (formData.get("category") as string | null)?.trim() || null;
   const cardId = Number.parseInt(formData.get("cardId") as string, 10);
+  const dateResult = parseTransactionDate(formData);
+  if ("error" in dateResult) {
+    return { error: dateResult.error };
+  }
 
   if (type !== "deposit" && type !== "expense") {
     return { error: "Invalid transaction type." };
@@ -78,6 +101,7 @@ export async function createTransactionAction(
     description,
     category: type === "expense" ? category : null,
     cardId,
+    createdAt: dateResult.createdAt,
   });
 
   if ("error" in result && result.error) {
@@ -92,6 +116,107 @@ export async function createTransactionAction(
         ? `Deposit added to ${card.name}.`
         : `Expense deducted from ${card.name}.`,
   };
+}
+
+export async function updateTransactionAction(
+  _prev: FinanceActionState | null,
+  formData: FormData
+): Promise<FinanceActionState | null> {
+  const session = await getSession();
+  if (!session) {
+    return { error: "You must be signed in." };
+  }
+
+  const transactionId = Number.parseInt(
+    formData.get("transactionId") as string,
+    10
+  );
+  const type = formData.get("type") as TransactionType;
+  const amountRaw = formData.get("amount") as string;
+  const description = (formData.get("description") as string).trim();
+  const category = (formData.get("category") as string | null)?.trim() || null;
+  const cardId = Number.parseInt(formData.get("cardId") as string, 10);
+  const dateResult = parseTransactionDate(formData);
+  if ("error" in dateResult) {
+    return { error: dateResult.error };
+  }
+
+  if (!Number.isFinite(transactionId)) {
+    return { error: "Invalid transaction." };
+  }
+
+  if (type !== "deposit" && type !== "expense") {
+    return { error: "Invalid transaction type." };
+  }
+
+  const amount = Number.parseFloat(amountRaw);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { error: "Enter a valid amount greater than zero." };
+  }
+
+  if (!description) {
+    return { error: "Please enter a name or reason." };
+  }
+
+  if (type === "expense" && !category) {
+    return { error: "Please select an expense category." };
+  }
+
+  if (!Number.isFinite(cardId)) {
+    return { error: "Please select a balance card." };
+  }
+
+  const txResult = await getTransaction(session.profileId, transactionId);
+  if ("error" in txResult && txResult.error) {
+    return { error: txResult.error };
+  }
+
+  const oldTx = txResult.transaction;
+  if (!oldTx?.card_id) {
+    return { error: "Transaction has no linked card." };
+  }
+
+  const cards = await getBalanceCards(session.profileId);
+  const newCard = cards.find((c) => c.id === cardId);
+  if (!newCard) {
+    return { error: "Invalid balance card." };
+  }
+
+  const oldDelta = oldTx.type === "deposit" ? -oldTx.amount : oldTx.amount;
+  const newDelta = type === "deposit" ? amount : -amount;
+
+  const reverseResult = await adjustCardBalance(
+    session.profileId,
+    oldTx.card_id,
+    oldDelta
+  );
+  if ("error" in reverseResult && reverseResult.error) {
+    return { error: reverseResult.error };
+  }
+
+  const applyResult = await adjustCardBalance(session.profileId, cardId, newDelta);
+  if ("error" in applyResult && applyResult.error) {
+    await adjustCardBalance(session.profileId, oldTx.card_id, -oldDelta);
+    return { error: applyResult.error };
+  }
+
+  const result = await updateTransaction(session.profileId, transactionId, {
+    type,
+    amount,
+    description,
+    category: type === "expense" ? category : null,
+    cardId,
+    createdAt: dateResult.createdAt,
+  });
+
+  if ("error" in result && result.error) {
+    await adjustCardBalance(session.profileId, cardId, -newDelta);
+    await adjustCardBalance(session.profileId, oldTx.card_id, -oldDelta);
+    return { error: result.error };
+  }
+
+  revalidatePath("/");
+  return { success: "Transaction updated." };
 }
 
 export async function deleteTransactionFormAction(formData: FormData) {
